@@ -2,7 +2,7 @@
 title: "Assignment 1: California Spiny Lobster Abundance (*Panulirus Interruptus*)"
 subtitle: "Assessing the Impact of Marine Protected Areas (MPAs) at 5 Reef Sites in Santa Barbara County"
 author: "Ian Morris-Sibaja"
-date: "1/8/2024 (Due 1/22)"
+date: "1/8/2025 (Due 1/22)"
 output: 
     html_document:
       theme: flatly
@@ -399,10 +399,14 @@ Step 6: Compare models
 export_summs(m1_ols, m2_pois, m3_nb,
              model.names = c("OLS","Poisson", "NB"),
              statistics = "none")
+# Percent Change in each model
+paste("OLS: ", (m1_ols$coefficients[2]/m1_ols$coefficients[1])*100, "% Change")
+paste("Poisson: ", (exp(m2_pois$coefficients[2]) - 1) * 100, "% Change")
+paste("Negative Binomial: ", (exp(m3_nb$coefficients[2])-1)*100, "% Change")
 
 ```
 
-The results show that Poisson distribution is the only treatment with a significantly significant result. Both OLS and Negative Binomial Regression show that the models effect of the treated values are not stable across model specifications. With this, I argue against the robustness of the treatment effect.
+The results show that Poisson distribution is the only treatment with a significantly significant result. Both OLS and Negative Binomial Regression show that the models effect of the treated values are not stable across model specifications. However, the change in the treatment effect is similar across all models, suggesting that the treatment effect is robust across all models.
 
 ------------------------------------------------------------------------
 
@@ -436,7 +440,7 @@ m5_fixedeffs <- glm.nb(
 summ(m5_fixedeffs, model.fit = FALSE)
 ```
 
-The negative binomial model predicts how the treatment effect changes over time and the affects of their interactions `treat:year`. Overall, this model suggests that the treatment variable has a negative effect on the counts of lobsters initially, meaning that the MPA sites have fewer lobsters than the non-MPA sites. However, as time goes on, the treatment effect becomes positive, meaning that the MPA sites have more lobsters than the non-MPA sites. This suggests that the MPA sites are recovering from the effects of fishing and are now supporting larger lobster populations.
+The negative binomial model predicts how the treatment effect changes over time and the affects of their interactions `treat:year`. Overall, this model suggests that the treatment variable has a negative effect on the counts of lobsters initially, meaning at year 2012, the MPA sites have fewer lobsters than the non-MPA sites. However, as time goes on, the treatment effect becomes positive, meaning that the MPA sites generally have more lobsters than the non-MPA sites. This suggests that the MPA sites are recovering from the effects of fishing and are now supporting larger lobster populations.
 
 **e.** Look at the model predictions: Use the `interact_plot()` function from package `interactions` to plot mean predictions by year and treatment status.
 
@@ -451,6 +455,8 @@ interact_plot(m5_fixedeffs, pred = year, modx = treat,
               outcome.scale = "response")
 
 ```
+
+After re-evaluating the model, we can see that the treatment effect is not as stable as we once thought. The treatment effect is negative at the beginning of the study, becomes positive as time goes on, decreases between 2015-2106, then the populations begin to rise again. It is possible that MPA sites are recovering from the effects of fishing and are now supporting larger lobster populations, but there is not a clear trajectory on their population with this range.
 
 **g.** Using `ggplot()` create a plot in same style as the previous `interaction plot`, but displaying the original scale of the outcome variable (lobster counts). This type of plot is commonly used to show how the treatment effect changes across discrete time points (i.e., panel data).
 
@@ -502,8 +508,131 @@ d.  Discuss the following causal inference assumptions in the context of the MPA
 > Use the recent lobster abundance data with observations collected up until 2024 (`lobster_sbchannel_24.csv`) to run an analysis evaluating the effect of MPA status on lobster counts using the same focal variables.
 
 a.  Create a new script for the analysis on the updated data
+
+```{r}
+# Import new data
+rawdata_new <- read_csv(here("data", "lobster_sbchannel_24.csv"), na = "-99999") %>% 
+    clean_names()
+
+# Refactor sites 
+tidydata_new <- rawdata_new %>% 
+    mutate(reef = factor(site, order = TRUE,
+                         levels = c("AQUE", "CARP",
+                                    "MOHK", "IVEE", "NAPL"),
+                         labels = c("Arroyo Quemado", "Carpenteria",
+                                    "Mohawk", "Isla Vista", "Naples")))
+
+# Treatment variables MPA site and mean size 
+spiny_counts_new <- tidydata_new %>% 
+    group_by(site, year, transect) %>% 
+    summarise(mean_size = mean(size_mm, na.rm = TRUE),
+              counts =  as.integer(sum(count, na.rm = TRUE))) %>% 
+    ungroup() %>% 
+    mutate(mpa = case_when(site %in% c("IVEE", "NAPL") ~ "MPA", 
+                           TRUE ~ "non_MPA"),
+           treat = case_when(site %in% c("IVEE", "NAPL") ~ 1, 
+                           TRUE ~ 0)) %>% 
+    mutate(across(where(is.numeric), ~(ifelse(is.na(.), NA_real_, (.)))))
+```
+
 b.  Run at least 3 regression models & assess model diagnostics
+
+Linear Model 
+```{r}
+# Linear model 
+m1_ols_new <- lm(counts ~ treat, data = spiny_counts_new)
+
+summ(m1_ols_new, model.fit = FALSE) 
+```
+
+```{r}
+check_model(m1_ols_new)
+```
+
+
+Again, the linear model does not fit our data well. Regardless of the significant P-Value in our treated variable, The residuals are not uniform, our data is overdispersed, and there is zero-inflation present. Additionally, our data does not follow our posterior distribution. The influential observations are also not within the threshold we expect. In conclusion, this is a poor fitting model.
+
+Poisson Model
+```{r}
+# Possion model of counts as a function of treatment
+m2_pois_new <- glm(counts ~ treat, 
+               data = spiny_counts_new,
+               family = poisson(link = "log"))
+
+summ(m2_pois_new, model.fit = FALSE)
+
+print(paste("Percent Change: ", (exp(m2_pois_new$coefficients["treat"]) - 1) * 100))
+```
+
+```{r}
+check_model(m2_pois_new)
+```
+
+```{r}
+check_overdispersion(m2_pois_new)
+check_zeroinflation(m2_pois_new)
+```
+
+While there are less violations of our model assumptions in the Poisson model and our p-value states that our results are statistically significant, there is still zero-inflation and over dispersion present in our data. Additionally, the uniformity of residuals still does not follow along the expected line. This suggests that the model is not a good fit for our data.
+
+Negative Binomial Model
+
+```{r}
+# Negative binomial model 
+m3_nb_new <- glm.nb(counts ~ treat,
+                data = spiny_counts_new)
+
+summ(m3_nb_new, model.fit = FALSE)
+
+print(paste("Percent Change: ", (exp(m3_nb_new$coefficients["treat"]) - 1) * 100))
+```
+
+```{r}
+check_model(m3_nb_new)
+```
+
+```{r}
+check_overdispersion(m3_nb_new)
+check_zeroinflation(m3_nb_new)
+```
+
+
+Again, the negative binomial model performed the best out of all our model selections. This tracks with what we discovered when model-fitting for the 2018 lobster data. However this time, the P-value in our treatment variable is significant. The residuals are uniform, we have very little over dispersion (with a p value of .8) and little zero-inflation, and our data follows our posterior distribution. This suggests that the negative binomial model is the best fit for our data, and is not statistically insiginificant as suggested before
+
 c.  Compare and contrast results with the analysis from the 2012-2018 data sample (\~ 2 paragraphs)
+
+```{r}
+# View all three model results side by side
+export_summs(m1_ols_new, m2_pois_new, m3_nb_new, 
+             model.names = c("OLS","Poisson", "NB"),
+             statistics = "none")
+
+# Percent Change in each model
+paste("OLS: ", (m1_ols_new$coefficients[2]/m1_ols_new$coefficients[1])*100, "% Change")
+paste("Poisson: ", (exp(m2_pois_new$coefficients[2]) - 1) * 100, "% Change")
+paste("Negative Binomial: ", (exp(m3_nb_new$coefficients[2])-1)*100, "% Change")
+```
+
+```{r}
+# Create df with factorized year
+ff_counts_new <- spiny_counts_new %>% 
+    mutate(year=as_factor(year))
+    
+# Create a negative binomial with factorized years
+m5_fixedeffs_new <- glm.nb(
+    counts ~ 
+        treat +
+        year +
+        treat*year,
+    data = ff_counts_new)
+
+summ(m5_fixedeffs_new, model.fit = FALSE)
+
+interact_plot(m5_fixedeffs_new, pred = year, modx = treat,
+              outcome.scale = "response")
+```
+
+With new data, we see increased significance across all of our models. This suggests that the new data modeling is similarly robust when compared the old data. Additionally, the negative binomial model is still the best fit for our data, as it has the lowest dispersion ratio and the most uniform residuals. This suggests that the negative binomial model is the best fit for our data, and is not statistically insignificant as suggested before. Additionally, the graph intuitively indicates that there is a trend of higher counts of lobster in the MPA sites than the non-MPA sites, which is consistent with our model results.
 
 ------------------------------------------------------------------------
 
