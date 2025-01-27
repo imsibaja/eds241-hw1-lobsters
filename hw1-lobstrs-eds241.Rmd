@@ -12,7 +12,7 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(eval=FALSE, warning = FALSE, message = FALSE )
+knitr::opts_chunk$set(eval=TRUE, warning = FALSE, message = FALSE )
 ```
 
 ------------------------------------------------------------------------
@@ -33,12 +33,12 @@ knitr::opts_chunk$set(eval=FALSE, warning = FALSE, message = FALSE )
 
 -   Your knitted presentation should meet the quality you'd submit to research colleagues or feel confident sharing publicly. Refer to the rubric for details about presentation standards.
 
-**Assignment submission (YOUR NAME):** Ian Morris-Sibaja
+**Assignment submission (YOUR NAME):** Ian Morris-Sibaja, Haylee Oyleer
 
 ------------------------------------------------------------------------
 
 ```{r}
-
+# Load libraries
 library(tidyverse)
 library(here)
 library(janitor)
@@ -47,11 +47,11 @@ library(performance)
 library(jtools)
 library(gt)
 library(gtsummary)
-library(MASS) ## NOTE: The `select()` function is masked. Use: `dplyr::select()` ##
+library(MASS)
 library(interactions) 
 library(ggplot2)
 library(ggridges)
-
+library(beeswarm)
 ```
 
 ------------------------------------------------------------------------
@@ -80,7 +80,7 @@ Step 1: Anticipating potential sources of selection bias
 
 **a.** Do the control sites (Arroyo Quemado, Carpenteria, and Mohawk) provide a strong counterfactual for our treatment sites (Naples, Isla Vista)? Write a paragraph making a case for why this comparison is centris paribus or whether selection bias is likely (be specific!).
 
-The control sites
+I belive this comparison to be centris paribus, as they are in similar areas so environmental factors are not likely to be different between the two groups. This means that the only difference between the two groups is the MPA status, which is the only thing we are trying to measure.
 
 ------------------------------------------------------------------------
 
@@ -93,6 +93,7 @@ Step 2: Read & wrangle data
 ```{r}
 # HINT: check for coding of missing values (`na = "-99999"`)
 
+# Import spinky lobster data
 rawdata <- read_csv("data/spiny_abundance_sb_18.csv", na = "-99999") %>% 
     clean_names() 
 
@@ -105,7 +106,7 @@ rawdata <- read_csv("data/spiny_abundance_sb_18.csv", na = "-99999") %>%
 ```
 
 ```{r}
-
+# Create a new variable `reef` of type factor
 tidydata <- rawdata %>% 
     mutate(reef = factor(site, order = TRUE,
                          levels = c("AQUE", "CARP",
@@ -129,6 +130,7 @@ Create new `df` named `spiny_counts`
 
 #HINT(e): Use `case_when()` to create the 3 new variable columns
 
+# Create df spiny counts of summarized data by site, year, and transect
 spiny_counts <- tidydata %>% 
     group_by(site, year, transect) %>% 
     summarise(mean_size = mean(size_mm, na.rm = TRUE),
@@ -160,7 +162,7 @@ Step 3: Explore & visualize data
 
 Create plots displaying the distribution of lobster **counts**:
 
-1)  grouped by reef site\
+1)  grouped by reef site
 2)  grouped by MPA status
 3)  grouped by year
 
@@ -170,7 +172,6 @@ Create a plot of lobster **size** :
 
 ```{r}
 # plot 1: Ridgeline Plot of Spiny Lobster Count Distribution by Site
-
 spiny_counts %>% 
     ggplot(aes(x = counts, y = site, fill = after_stat(quantile))) +
   stat_density_ridges(quantile_lines = TRUE,
@@ -184,42 +185,43 @@ spiny_counts %>%
 ```
 
 ```{r}
-# plot 2: Ridgeline Plot of Spiny Lobster Count Distribution by MPA Status
+# plot 2: Beeswarm Plot of Spiny Lobster Count Distribution by MPA Status
 
-spiny_counts %>% 
-    ggplot(aes(x = counts, y = mpa, fill = after_stat(quantile))) +
-  stat_density_ridges(quantile_lines = TRUE,
-                      calc_ecdf = TRUE,
-                      geom = "density_ridges_gradient") +
-  scale_fill_brewer(name = "Quantiles") +
-    labs( x = "Total Counts of Spiny Lobster",
-          y = "MPA Status",
-          title = "Distribution of Spiny Lobster Counts by MPA Status") +
-    theme_nice()
+# Calculate medians
+medians <- tapply(spiny_counts$counts, spiny_counts$mpa, median)
+
+# Create beeswarm plot
+beeswarm(spiny_counts$counts ~ spiny_counts$mpa, 
+         pch = 16, 
+         col = c(rgb(0.25, 0.63, 1, 0.75),
+                 rgb(1, 0.88, 0.6, 0.75)), 
+         method = "hex", corral = "wrap", 
+         ylab = "Total Counts of Spiny Lobster", xlab = "MPA Status", 
+         main = "Distribution of Spiny Lobster Counts by MPA Status")
+legend("topright", legend = c("Median"), col = "red", pch = 18, cex = 1.5)
+
+# Overlay medians on plot
+points(1:length(medians), medians, col = "red", pch = 18, cex = 1.5)
 ```
 
 ```{r}
 # plot 3: Bar Chart of Spiny Lobster Count Distribution by Year
 spiny_counts %>%
   ggplot(aes(x = year, y = counts, group = year)) +
+  theme_nice() +
   geom_boxplot(fill = "steelblue4") +
   labs(
     x = "Year",
     y = "Counts of Spiny Lobster",
     title = "Distribution of Spiny Lobster Counts by Year"
-  ) +
-  theme_nice() 
+  ) 
 ```
 
 ```{r}
 # plot 4: Bar Chart of Spiny Lobster Size Distribution by Site
-
 spiny_counts %>% 
-    ggplot(aes(x = mean_size, y = mpa, fill = after_stat(quantile))) +
-  stat_density_ridges(quantile_lines = TRUE,
-                      calc_ecdf = TRUE,
-                      geom = "density_ridges_gradient") +
-  scale_fill_brewer(name = "Quantiles") +
+    ggplot(aes(x = mean_size, y = mpa, fill = mpa)) +
+   geom_violin(draw_quantiles = c(0.25, 0.5, 0.75))  +
     labs( x = "Average Size of Spiny Lobster (mm)",
           y = "MPA Status",
           title = "Distribution of Average Spiny Lobster Size by MPA Status") +
@@ -230,6 +232,7 @@ spiny_counts %>%
 
 ```{r}
 # USE: gt_summary::tbl_summary()
+# Compare means by treatment
 spiny_counts %>% 
     dplyr::select(treat, counts, mean_size) %>% 
     tbl_summary(by = treat,
@@ -247,6 +250,7 @@ Step 4: OLS regression- building intuition
 ```{r}
 # NOTE: We will not evaluate/interpret model fit in this assignment (e.g., R-square)
 
+# Fit linear model
 m1_ols <- lm(counts ~ treat, data = spiny_counts)
 
 summ(m1_ols, model.fit = FALSE)
@@ -260,18 +264,22 @@ Non-MPA sites have \~23 lobster observations per sight. MPA sites have \~5 more 
 **d.** Explain the results of the 4 diagnostic plots. Why are we getting this result?
 
 ```{r}
+# Check qq plot
 check_model(m1_ols,  check = "qq" )
 ```
 
 ```{r}
+# Check normality
 check_model(m1_ols, check = "normality")
 ```
 
 ```{r}
+# Check Homogeneity
 check_model(m1_ols, check = "homogeneity")
 ```
 
 ```{r}
+# Posterior Pedictive Check
 check_model(m1_ols, check = "pp_check")
 ```
 
@@ -294,6 +302,7 @@ Step 5: Fitting GLMs
 
 #HINT2: For the second glm() argument `family` use the following specification option `family = poisson(link = "log")`
 
+# Fit a Poisson Regression Model
 m2_pois <- glm(counts ~treat,
                data = spiny_counts,
                family=poisson(link = "log"))
@@ -305,11 +314,7 @@ print(paste("Percent Change: ", (exp(m2_pois$coefficients["treat"]) - 1) * 100))
 
 MPA sites have 23% more lobsters than the non-MPA sights on average.
 
-Explain the statistical concept of dispersion and overdispersion in the context of this model.
-
-Dispersion refers to the relationship between the variance of the observed data and the mean. In a perfectly fitting Poisson model, the dispersion is exactly 1, meaning the variance equals the mean.
-
-Overdispersion occurs when the variance is greater than the mean. This means our model underestimates the variability of the data due to possible missing variables, dependent and clustering counts, or a an overabundance of zero counts in the data.
+Dispersion refers to the relationship between the variance of the observed data and the mean. In our model, this involves examining whether the variance in the treated values is relatively low or high compared to the mean, which theoretically should follow a Poisson distribution. Overdispersion occurs when the variance exceeds the mean. This indicates that the model underestimates the variability in the data, potentially due to missing variables, dependency among observations (e.g., clustered or correlated counts), or an excess of zero counts in the data. In our case, overdispersion would suggest that the variance in the observed lobster counts is greater than the mean, violating the Poisson model's assumption of equidispersion and undermining its suitability for the data.
 
 In terms of the treatment effect of the current model, the p value is significant in the poisson regression, while in the linear regression model it is not significant. This suggest that the model that is proportionally changing is much more suited to our data, instead of an absolute change in treatments.
 
@@ -318,20 +323,29 @@ In terms of the treatment effect of the current model, the p value is significan
 **f.** Conduct tests for over-dispersion & zero-inflation. Explain results.
 
 ```{r}
+# Multiple model check
 check_model(m2_pois)
 ```
 
+Posterior Predictive Check in Poisson models check if the model capture relevant data correctly, such as median, mean and SDs. As we can see, the model predicted data and observed data do not overlap well, so it does not capture correctly. Additionally, we can see in the dispersion and zero inflation check (which checks for expected variability in the modle) that once again, the model does not capture the data well. This time, we see the residual variance is much higher in our observed model than what we would expect. Our homogeneity of Variance captures if the expected standardized residuals are equal between the predicted and observed values. We can see form the data that this holds true. Additionally, influential observations (important observations that would greatly affect important statistical calculations) are within the threshold we would expect if the model were a good fit. Lastly, under uniformity of residuals, which measures if the residuals are evenly distributed across the model, we see that our model does not capture the residuals well.
+
 ```{r}
+# Overdispersion test
 check_overdispersion(m2_pois)
 ```
 
 ```{r}
+# Zero Inflation Test
 check_zeroinflation(m2_pois)
 ```
+
+Our checks show that there is evidence of zero-inflation, over dispersion, and non-uniformity of residuals in our model. All checks violate assumptions within a poisson model.
 
 **g.** Fit a negative binomial model using the function glm.nb() from the package `MASS` and check model diagnostics
 
 **h.** In 1-2 sentences explain rationale for fitting this GLM model.
+
+This GLM model discrete data over a positive range whose sample variance exceeds the sample mean, helping in those cases when there is zero-inflation, similar to our data. Additionally, this model is used when the data is over dispersed (variance \> mean), which is the case in our data.
 
 **i.** Interpret the treatment estimate result in your own words. Compare with results from the previous model.
 
@@ -339,25 +353,38 @@ check_zeroinflation(m2_pois)
 
 # NOTE: The `glm.nb()` function does not require a `family` argument
 
-m3_nb <- 
+# Fit a binomal model 
+m3_nb <- MASS::glm.nb(counts ~ treat,
+                      data = spiny_counts)
 
+# Summarize Model statistics
+summ(m3_nb, model.fit = FALSE)
+
+# Print percent change 
+print(paste("Percent Change: ", (exp(m3_nb$coefficients["treat"]) - 1) * 100))
 ```
 
 ```{r}
+# Overdispersion test
 check_overdispersion(m3_nb)
 ```
 
 ```{r}
+# Zero inflation test
 check_zeroinflation(m3_nb)
 ```
 
 ```{r}
+# Posterior Predictive Test
 check_predictions(m3_nb)
 ```
 
 ```{r}
+# Model Multiple check 
 check_model(m3_nb)
 ```
+
+We can see that the negative binomial model is a better fit for our data than the poisson model. The negative binomial model also has a lower dispersion ratio, which is closer to 1 than the poisson model. This suggests that the negative binomial model is a better fit for our data than the poisson model. One thing to note is that the P-value is insignificant in our summary table, which means that while the model fits the data better statistically, it is likely due to chance rather than a meaningful correlation. This may be visible by looking at the misspecified dispersion and zero-inflation check, which shows that our observed residual variance is still consistently greater than our predicted residual variance.
 
 ------------------------------------------------------------------------
 
@@ -369,11 +396,13 @@ Step 6: Compare models
 
 ```{r}
 
-export_summs(# ADD MODELS
+export_summs(m1_ols, m2_pois, m3_nb,
              model.names = c("OLS","Poisson", "NB"),
              statistics = "none")
 
 ```
+
+The results show that Poisson distribution is the only treatment with a significantly significant result. Both OLS and Negative Binomial Regression show that the models effect of the treated values are not stable across model specifications. With this, I argue against the robustness of the treatment effect.
 
 ------------------------------------------------------------------------
 
@@ -381,27 +410,33 @@ Step 7: Building intuition - fixed effects
 
 **a.** Create new `df` with the `year` variable converted to a factor
 
-**b.** Run the following OLS model using `lm()`
+**b.** Run the following negative binomial model using `glm.nb()`
 
--   Use the following specification for the outcome `log(counts+1)`
+-   Add fixed effects for `year` (i.e., dummy coefficients)
 -   Estimate fixed effects for `year`
--   Include an interaction term between variables `treat` and `year`
+-   Include an interaction term between variables `treat` & `year` (treat\*year)
 
 **c.** Take a look at the regression output. Each coefficient provides a comparison or the difference in means for a specific sub-group in the data. Informally, describe the what the model has estimated at a conceptual level (NOTE: you do not have to interpret coefficients individually)
 
 **d.** Explain why the main effect for treatment is negative? \*Does this result make sense?
 
 ```{r}
-
+# Create df with factorized year
 ff_counts <- spiny_counts %>% 
     mutate(year=as_factor(year))
     
-m5_fixedeffs <- lm(
-    log(counts+1) ~ treat*year,
+# Create a negative binomial with factorized years
+m5_fixedeffs <- glm.nb(
+    counts ~ 
+        treat +
+        year +
+        treat*year,
     data = ff_counts)
 
 summ(m5_fixedeffs, model.fit = FALSE)
 ```
+
+The negative binomial model predicts how the treatment effect changes over time and the affects of their interactions `treat:year`. Overall, this model suggests that the treatment variable has a negative effect on the counts of lobsters initially, meaning that the MPA sites have fewer lobsters than the non-MPA sites. However, as time goes on, the treatment effect becomes positive, meaning that the MPA sites have more lobsters than the non-MPA sites. This suggests that the MPA sites are recovering from the effects of fishing and are now supporting larger lobster populations.
 
 **e.** Look at the model predictions: Use the `interact_plot()` function from package `interactions` to plot mean predictions by year and treatment status.
 
@@ -425,9 +460,18 @@ The plot should have... - `year` on the x-axis - `counts` on the y-axis - `mpa` 
 # Hint 1: Group counts by `year` and `mpa` and calculate the `mean_count`
 # Hint 2: Convert variable `year` to a factor
 
-plot_counts <- 
+plot_counts <- ff_counts %>% 
+    group_by(year, mpa) %>% 
+    summarize(mean_count = mean(counts, na.rm = TRUE)) %>% 
+    ungroup() %>%
+    mutate(year = as.factor(year))
 
-# plot_counts %>% ggplot() ...
+plot_counts %>% ggplot(aes(x = year, y = mean_count, group = mpa)) +
+    geom_point() +
+    geom_line(aes(color = mpa)) +
+    labs(x = "Year", y = "Mean Count of Spiny Lobster",
+         title = "Mean Count of Spiny Lobster by Year and MPA Status") +
+    theme_nice()
 ```
 
 ------------------------------------------------------------------------
@@ -436,14 +480,20 @@ Step 8: Reconsider causal identification assumptions
 
 a.  Discuss whether you think `spillover effects` are likely in this research context (see Glossary of terms; <https://docs.google.com/document/d/1RIudsVcYhWGpqC-Uftk9UTz3PIq6stVyEpT44EPNgpE/edit?usp=sharing>)
 
+I believe that spillover effects are likely. The MPA and non-MPA sites are located very closely to each other. The MPA sites are located near the non-MPA sites, so lobster populations can easily disperse between sites.
+
 b.  Explain why spillover is an issue for the identification of causal effects
+
+Spillover is an issue for the identification of causal effects because it violates Stable Unit Treatment Value Assumption (SUTVA). When SUTVA is violated, it means that the treatment effect is normalizing the effects across all individuals in the study equally, leading to confounding bias.
 
 c.  How does spillover relate to impact in this research setting?
 
+With sites situated so closely, the possible population intermixing could cause the treatment to not be a causation as once thought. There may be other factors (predators, fishing, etc.) that affect the lobster populations, but are not obvious within our analysis.
+
 d.  Discuss the following causal inference assumptions in the context of the MPA treatment effect estimator. Evaluate if each of the assumption are reasonable:
 
-    1)  SUTVA: Stable Unit Treatment Value assumption
-    2)  Excludability assumption
+    1)  SUTVA: Stable Unit Treatment Value assumption The SUTVA assumption may be violated because of the locality of the MPA and non-MPA sites, and the possibility of their populations intermixing.
+    2)  Excludability assumption The Excludability assumption may be violated due to the other mechanisms mention above (predators, fishing, etc.) which could be affecting the lobster populations, when our model is only taking in account the MPA and non-MPA sites as the treatment.
 
 ------------------------------------------------------------------------
 
